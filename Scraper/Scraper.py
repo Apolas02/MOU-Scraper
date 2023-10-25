@@ -6,10 +6,7 @@ import sys
 from datetime import datetime
 from bs4 import BeautifulSoup
 
-#add if PW check or if CP check fix https://wireless2.fcc.gov/UlsApp/UlsSearch/license.jsp?licKey=2893362
-
 random.seed()
-
 #list of are callSigns
 areaCallSigns = []
 #stores infomation that will be printed into xlsx file
@@ -17,10 +14,15 @@ required_info = []
 #row that should start pulling and writing information on
 rowCount = 2
 
-#xlsx file to be used
+#preps the xlsx file to be used if xlsx file is missing or named incorrect, will throw and exception
 os.chdir(sys.path[0])
 file_name = "MOU agreements.xlsx"
-wb = openpyxl.load_workbook(file_name)
+try:
+    wb = openpyxl.load_workbook(file_name)
+except:
+    print("MOU agreements.xlsx not found")
+    input("press enter key to exit")
+    exit()
 sheets = wb.sheetnames
 ws = wb[sheets[0]]
 
@@ -46,6 +48,8 @@ def contactScraper(url):
     soup = BeautifulSoup(response.content, "html.parser")
     elements = soup.find_all(class_="cell-pri-light")
     items = [e.find_next(class_="cell-pri-light") for e in elements]
+    entity_type = ['Governmental Entity', 'Corporation', 'Individual', 'Limited Liability Company']
+    svc_type = ['Mobile', 'Fixed', 'Fixed, Mobile', 'Private Comm', 'FCL']
 
     if len(items) == 0:
         return
@@ -56,14 +60,12 @@ def contactScraper(url):
 
         #Formating and storing scrapped data into required_info
         x = 0
-        y = 99
-        z = 99
+        radio_svc_type_check = False #99
+        entity_type_check = False #99
         for item in items:
         
             item_text = item.get_text()
             item_text = item_text.strip()
-            
-            #item_text = item_text.replace("\n", ", ")
 
             #filters blanks
             if item_text == '':
@@ -71,31 +73,50 @@ def contactScraper(url):
             else:
                 item_list.append(item_text)
             
+            if x == 0:
+                radio_service = item_text[0:2]
+
             #grabs expiration date
-            if x == 4:
+            if x == 4 and radio_service != 'CP':
+                expiration_date = item_list[x]
+                required_info.append(expiration_date)
+
+            if x == 8 and radio_service == 'CP':
                 expiration_date = item_list[x]
                 required_info.append(expiration_date)
 
             #checks for text and stops appending to required_info
-            if item_text == 'Mobile' or item_text == 'Fixed' or item_text == 'Fixed, Mobile' or item_text == 'Private Comm':
-                z = x
+            if item_text in svc_type:
+                radio_svc_type_check = True
 
             #tells program when to append to required_info
-            if x > y and x < z:
+            if radio_svc_type_check == False and entity_type_check == True:
                 required_info.append(item_text)
                 x += 1
-                if x <= z:
-                    x += 1
-                    continue
         
             #checks for text and starts appending to required_info
-            if item_text == 'Governmental Entity' or item_text == 'Corporation' or item_text == 'Individual':
-                y = x
+            if item_text in entity_type:
+                entity_type_check = True
             x += 1
+
+            if radio_svc_type_check == True and entity_type_check == True:
+                break
         
         #formats then removes unnecessary items from required_info
         formater()
-        required_info.pop()
+        if radio_service != 'MC':
+            required_info.pop()
+
+        if radio_service == 'CF':
+            required_info.pop()
+
+        if len(required_info) == 7:
+            required_info[5] = required_info[6]
+            required_info.pop()
+        
+        if len(required_info) == 6:
+           if required_info[5] == 'Yes' or required_info[5] == 'No':
+                required_info.pop()
         writer()
 
 #call contactScraper and writes to the xlsx file
@@ -114,6 +135,7 @@ def scraper(currentCallSigns):
             #time.sleep(wait_timer)
     rowCount = 2
     
+#the main call of the program, it iterates through the sheets of the xlsx file and calls the parse and scraper functions
 def sheet_changer():
     global ws
     y = 0
@@ -131,6 +153,7 @@ def writer():
     infoCount=0
     for element in required_info:
         ws.cell(row=rowCount, column=colCount).value = required_info[infoCount]
+        ws.cell(row=rowCount, column=colCount).alignment = openpyxl.styles.Alignment(wrap_text=True)
         colCount+=1
         infoCount+=1
 
@@ -235,7 +258,6 @@ def formater():
         last_name = con_top[3]
         con_name = entity + '\n' + first_name + ' ' + middle_initial + last_name
 
-
     elif len(con_top) == 5:
         entity = con_top[0]
         first_name = con_top[1]
@@ -272,6 +294,9 @@ def main():
     #print("current working directory: ", os.getcwd())
     sheet_changer()
     wb.save('MOU agreements.xlsx')
+    print("\nScraping complete, MOU agreements.xlsx has been updated.")
+    input("press enter key to exit")
+    
 
 if __name__ == "__main__":
     main()
